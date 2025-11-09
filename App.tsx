@@ -11,23 +11,12 @@ const App: React.FC = () => {
   const chatInitialized = useRef(false);
 
   useEffect(() => {
-    // Initialize chat only once when the component mounts
+    // Client-side chat initialization is no longer necessary for direct API key handling.
+    // The Gemini API calls are now securely proxied through a Vercel API Route.
+    // The `initializeChat` function in `services/geminiService.ts` is now a no-op.
     if (!chatInitialized.current) {
-      try {
-        initializeChat();
-        chatInitialized.current = true;
-      } catch (error) {
-        console.error("Failed to initialize chat:", error);
-        // Display an error message to the user
-        setMessages((prevMessages) => [
-          ...prevMessages,
-          {
-            id: Date.now().toString(),
-            role: 'model',
-            content: 'Error: Failed to initialize chat. Please check your API key.',
-          },
-        ]);
-      }
+      initializeChat(); // This call will now just log a message to console.
+      chatInitialized.current = true;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Empty dependency array means this runs once on mount
@@ -71,12 +60,13 @@ const App: React.FC = () => {
       }
     } catch (error) {
       console.error('Error in chat stream:', error);
+      // Display a user-friendly error message indicating a server-side issue
       setMessages((prevMessages) => [
         ...prevMessages,
         {
           id: Date.now().toString(),
           role: 'model',
-          content: 'An error occurred while fetching the response. Please try again.',
+          content: `An error occurred while communicating with the AI. ${error instanceof Error ? error.message : String(error)}. Please try again.`,
         },
       ]);
     } finally {
@@ -97,7 +87,8 @@ const App: React.FC = () => {
             <div className="flex flex-col items-center justify-center h-full text-gray-500 text-center py-10">
               <p className="text-lg mb-2">Welcome to Gemini Chat!</p>
               <p className="text-sm">Type a message below to start a conversation.</p>
-              <img src="https://picsum.photos/200/200" alt="Placeholder" className="mt-6 rounded-full w-24 h-24 object-cover"/>
+              {/* Using a static placeholder image for now, consider a better icon or a small animation */}
+              <img src="https://picsum.photos/seed/gemini/200/200" alt="Chat Bot" className="mt-6 rounded-full w-24 h-24 object-cover"/>
             </div>
           )}
           {messages.map((msg) => (

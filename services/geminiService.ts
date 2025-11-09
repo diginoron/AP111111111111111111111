@@ -1,46 +1,66 @@
-import { GoogleGenAI, Chat, GenerateContentResponse } from "@google/genai";
-
-let chatInstance: Chat | null = null;
+// No direct @google/genai import on the client side anymore as API calls are proxied.
 
 /**
- * Initializes the Gemini chat session.
- * A new GoogleGenAI instance is created to ensure the latest API key from `process.env.API_KEY` is used.
+ * Client-side chat initialization is no longer necessary as API key handling
+ * and Gemini API calls are now securely managed by a Vercel API Route.
+ * This function is now a no-op, but kept for compatibility if other parts
+ * of the application still call it.
  */
 export const initializeChat = () => {
-  if (!process.env.API_KEY) {
-    console.error("API_KEY is not set. Please set it as an environment variable.");
-    throw new Error("Gemini API_KEY is missing.");
-  }
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  chatInstance = ai.chats.create({
-    model: 'gemini-2.5-flash', // Using 'gemini-2.5-flash' for general text chat
-    config: {
-      temperature: 0.9,
-      topK: 1,
-      topP: 1,
-    },
-  });
+  console.log("Client-side chat initialization skipped. Using serverless API route for Gemini interactions.");
 };
 
 /**
- * Sends a message to the Gemini model and streams the response.
+ * Sends a message to the Gemini model via a Vercel API Route and streams the response.
+ * The client makes a fetch request to the local `/api/chat` endpoint, which
+ * then handles the secure communication with the Gemini API.
  * @param message The user's message to send.
  * @returns An async iterator yielding chunks of the model's response.
  */
 export async function* sendMessageStream(message: string): AsyncGenerator<string, void, unknown> {
-  if (!chatInstance) {
-    initializeChat(); // Re-initialize if chatInstance is somehow null (e.g., after an error)
-  }
-
   try {
-    const response = await chatInstance!.sendMessageStream({ message });
-    for await (const chunk of response) {
-      if (chunk.text) {
-        yield chunk.text;
+    const response = await fetch('/api/chat', { // Call the Vercel API Route
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ message }),
+    });
+
+    // If the API Route returns an error status, parse the error message.
+    if (!response.ok) {
+      let errorMessage = `Server responded with status: ${response.status}`;
+      try {
+        const errorData = await response.json();
+        errorMessage = errorData.error || errorMessage;
+      } catch {
+        // If the response is not JSON, get the raw text.
+        errorMessage = await response.text() || errorMessage;
+      }
+      throw new Error(errorMessage);
+    }
+
+    // Ensure there is a readable body for streaming
+    if (!response.body) {
+      throw new Error('Response body is null, no stream received from server.');
+    }
+
+    // Read the streamed response from the API Route
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let done = false;
+
+    while (!done) {
+      const { value, done: readerDone } = await reader.read();
+      done = readerDone;
+      if (value) {
+        // Decode the Uint8Array to a string and yield it
+        yield decoder.decode(value, { stream: true });
       }
     }
   } catch (error) {
-    console.error("Error sending message to Gemini:", error);
-    throw new Error("Failed to get response from Gemini.");
+    console.error("Error communicating with the Vercel API Route:", error);
+    // Re-throw the error so App.tsx can catch and display it to the user.
+    throw new Error(`Failed to communicate with the chat server: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
